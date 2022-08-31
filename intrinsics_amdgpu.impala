@@ -1,0 +1,35 @@
+#[import(cc = "device", name = "llvm.amdgcn.dispatch.ptr")]   fn amdgcn_dispatch_ptr() -> &addrspace(4)i8;
+#[import(cc = "device", name = "llvm.amdgcn.s.barrier")]      fn amdgcn_s_barrier() -> ();
+#[import(cc = "device", name = "llvm.amdgcn.workgroup.id.x")] fn amdgcn_workgroup_id_x() -> i32;
+#[import(cc = "device", name = "llvm.amdgcn.workgroup.id.y")] fn amdgcn_workgroup_id_y() -> i32;
+#[import(cc = "device", name = "llvm.amdgcn.workgroup.id.z")] fn amdgcn_workgroup_id_z() -> i32;
+#[import(cc = "device", name = "llvm.amdgcn.workitem.id.x")]  fn amdgcn_workitem_id_x() -> i32;
+#[import(cc = "device", name = "llvm.amdgcn.workitem.id.y")]  fn amdgcn_workitem_id_y() -> i32;
+#[import(cc = "device", name = "llvm.amdgcn.workitem.id.z")]  fn amdgcn_workitem_id_z() -> i32;
+
+fn @runtime_device(platform: i32, device: i32) -> i32 = platform | (device << 4);
+fn @alloc_gpu(dev: i32, size: i64) -> &[f32] = runtime_alloc(runtime_device(3, dev), size) as &[f32];
+fn @release_gpu(dev: i32, data: &[f32]) = runtime_release(runtime_device(3, dev), data as &[i8]);
+fn @runtime_copy_to_gpu(dev: i32, src: &[f32], dst: &[f32], size: i64) = runtime_copy(0, src as &[i8], 0, runtime_device(3, dev), dst as &mut[i8], 0, size);
+fn @runtime_copy_to_cpu(dev: i32, src: &[f32], dst: &[f32], size: i64) = runtime_copy(runtime_device(3, dev), src as &[i8], 0, 0, dst as &mut[i8], 0, size);
+fn @synchronize_hsa(dev: i32) = runtime_synchronize(runtime_device(3, dev));
+
+fn @acc(body: fn() -> ()) = @|dev: i32, grid: (i32, i32, i32), block: (i32, i32, i32)| amdgpu(dev, grid, block, body);
+fn @acc_sync(dev: i32)  = synchronize_hsa(dev);
+fn @acc_tidx() -> i32   = amdgcn_workitem_id_x();
+fn @acc_tidy() -> i32   = amdgcn_workitem_id_y();
+fn @acc_tidz() -> i32   = amdgcn_workitem_id_z();
+fn @acc_bidx() -> i32   = amdgcn_workgroup_id_x();
+fn @acc_bidy() -> i32   = amdgcn_workgroup_id_y();
+fn @acc_bidz() -> i32   = amdgcn_workgroup_id_z();
+fn @acc_bdimx() -> i32  = bitcast[&addrspace(4)[u16]](amdgcn_dispatch_ptr())(2) as i32;
+fn @acc_bdimy() -> i32  = bitcast[&addrspace(4)[u16]](amdgcn_dispatch_ptr())(3) as i32;
+fn @acc_bdimz() -> i32  = bitcast[&addrspace(4)[u16]](amdgcn_dispatch_ptr())(4) as i32;
+fn @acc_gdimx() -> i32  = bitcast[&addrspace(4)[u32]](amdgcn_dispatch_ptr())(3) as i32;
+fn @acc_gdimy() -> i32  = bitcast[&addrspace(4)[u32]](amdgcn_dispatch_ptr())(4) as i32;
+fn @acc_gdimz() -> i32  = bitcast[&addrspace(4)[u32]](amdgcn_dispatch_ptr())(5) as i32;
+fn @acc_gidx() -> i32   = amdgcn_workitem_id_x() + bitcast[&addrspace(4)[u16]](amdgcn_dispatch_ptr())(2) as i32 * amdgcn_workgroup_id_x();
+fn @acc_gidy() -> i32   = amdgcn_workitem_id_y() + bitcast[&addrspace(4)[u16]](amdgcn_dispatch_ptr())(3) as i32 * amdgcn_workgroup_id_y();
+fn @acc_gidz() -> i32   = amdgcn_workitem_id_z() + bitcast[&addrspace(4)[u16]](amdgcn_dispatch_ptr())(4) as i32 * amdgcn_workgroup_id_z();
+fn @acc_barrier() -> () = amdgcn_s_barrier();
+fn @acc_dev() -> i32    = 1;

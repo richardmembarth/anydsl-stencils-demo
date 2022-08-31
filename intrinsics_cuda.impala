@@ -1,0 +1,41 @@
+// wrappers for threadIdx.x etc. are provided by the CUDA backend
+#[import(cc = "device")] fn threadIdx_x() -> i32;
+#[import(cc = "device")] fn threadIdx_y() -> i32;
+#[import(cc = "device")] fn threadIdx_z() -> i32;
+#[import(cc = "device")] fn blockIdx_x() -> i32;
+#[import(cc = "device")] fn blockIdx_y() -> i32;
+#[import(cc = "device")] fn blockIdx_z() -> i32;
+#[import(cc = "device")] fn blockDim_x() -> i32;
+#[import(cc = "device")] fn blockDim_y() -> i32;
+#[import(cc = "device")] fn blockDim_z() -> i32;
+#[import(cc = "device")] fn gridDim_x() -> i32;
+#[import(cc = "device")] fn gridDim_y() -> i32;
+#[import(cc = "device")] fn gridDim_z() -> i32;
+#[import(cc = "device", name = "__syncthreads")] fn syncthreads() -> ();
+
+fn @runtime_device(platform: i32, device: i32) -> i32 = platform | (device << 4);
+fn @alloc_gpu(dev: i32, size: i64) -> &[f32] = runtime_alloc(runtime_device(1, dev), size) as &[f32];
+fn @release_gpu(dev: i32, data: &[f32]) = runtime_release(runtime_device(1, dev), data as &[i8]);
+fn @runtime_copy_to_gpu(dev: i32, src: &[f32], dst: &[f32], size: i64) = runtime_copy(0, src as &[i8], 0, runtime_device(1, dev), dst as &mut[i8], 0, size);
+fn @runtime_copy_to_cpu(dev: i32, src: &[f32], dst: &[f32], size: i64) = runtime_copy(runtime_device(1, dev), src as &[i8], 0, 0, dst as &mut[i8], 0, size);
+fn @synchronize_cuda(dev: i32) = runtime_synchronize(runtime_device(1, dev));
+
+fn @acc(body: fn() -> ()) = @|dev: i32, grid: (i32, i32, i32), block: (i32, i32, i32)| cuda(dev, grid, block, body);
+fn @acc_sync(dev: i32)  = synchronize_cuda(dev);
+fn @acc_tidx() -> i32   = threadIdx_x();
+fn @acc_tidy() -> i32   = threadIdx_y();
+fn @acc_tidz() -> i32   = threadIdx_z();
+fn @acc_bidx() -> i32   = blockIdx_x();
+fn @acc_bidy() -> i32   = blockIdx_y();
+fn @acc_bidz() -> i32   = blockIdx_z();
+fn @acc_bdimx() -> i32  = blockDim_x();
+fn @acc_bdimy() -> i32  = blockDim_y();
+fn @acc_bdimz() -> i32  = blockDim_z();
+fn @acc_gdimx() -> i32  = gridDim_x();
+fn @acc_gdimy() -> i32  = gridDim_y();
+fn @acc_gdimz() -> i32  = gridDim_z();
+fn @acc_gidx() -> i32   = acc_tidx() + acc_bdimx() * acc_bidx();
+fn @acc_gidy() -> i32   = acc_tidy() + acc_bdimy() * acc_bidy();
+fn @acc_gidz() -> i32   = acc_tidz() + acc_bdimz() * acc_bidz();
+fn @acc_barrier() -> () = syncthreads();
+fn @acc_dev() -> i32    = 0;

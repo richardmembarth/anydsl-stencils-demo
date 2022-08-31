@@ -1,0 +1,24 @@
+fn @iteration(body: fn(i32, i32, i32, [f32 * 5], Img, Img, bool) -> ()) = @|out: Img, arr: Img, ksize: i32, stencil: [f32 * 5]| -> () {
+    // allocate temporary array
+    let size = (arr.width * arr.height) as i64 * sizeof[f32]();
+    let tmp  = Img { data = alloc_cpu(size) as &mut[f32], width = out.width, height = out.height };
+    init_zero(tmp.data, tmp.width, tmp.height);
+
+    for benchmark_cpu() {
+        for y in outer_loop(0, out.height) {
+            for x in inner_loop(0, out.width) {
+                let is_row = false;
+                @body(x, y, ksize, stencil, tmp, arr, is_row);
+            }
+        }
+
+        for y in outer_loop(0, out.height) {
+            for x in inner_loop(0, out.width) {
+                let is_row = true;
+                @body(x, y, ksize, stencil, out, tmp, is_row);
+            }
+        }
+    }
+
+    release_cpu(tmp.data);
+};

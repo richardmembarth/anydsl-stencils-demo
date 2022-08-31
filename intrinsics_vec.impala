@@ -1,0 +1,13 @@
+//static num_threads = 0;
+//static num_vector_lanes = 1;
+
+fn @outer_loop(body: fn(i32) -> ()) = @|lower: i32, upper: i32| -> () {
+    // TODO parallelize
+    for i in range(lower, upper) {
+        body(i);
+    }
+};
+fn @inner_loop(body: fn(i32) -> ()) = @|lower: i32, upper: i32| -> () {
+    // TODO vectorize
+    range(body)(lower, upper);
+};

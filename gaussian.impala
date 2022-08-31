@@ -1,0 +1,42 @@
+fn @apply_stencil(x: i32, y: i32, img: Img, ksize: i32, stencil: [f32 * 5], row: bool) -> f32 {
+    let mut sum = 0:f32;
+    let half_range = ksize / 2;
+
+    for i in unroll(-half_range, half_range+1) {
+        let stencil_val = stencil(i + half_range);
+        let mut idx_x = x + if row { i } else { 0 };
+        let mut idx_y = y + if row { 0 } else { i };
+        if row {
+            idx_x = clamp_lower(idx_x, 0);
+            idx_x = clamp_upper(idx_x, img.width);
+        } else {
+            idx_y = clamp_lower(idx_y, 0);
+            idx_y = clamp_upper(idx_y, img.height);
+        }
+        sum += img.data(idx_y * img.width + idx_x) * stencil_val;
+    }
+
+    sum
+}
+
+#[export]
+fn main() -> i32 {
+    let width  = 4096;
+    let height = 4096;
+    let ksize  = 5;
+    let arr    = Img { data = alloc_cpu((width*height) as i64 * sizeof[f32]()) as &mut[f32], width = width, height = height };
+    let out    = Img { data = alloc_cpu((width*height) as i64 * sizeof[f32]()) as &mut[f32], width = width, height = height };
+    init_rand(arr.data, width, height);
+    init_zero(out.data, width, height);
+
+    let stencil = [ 0.070766:f32, 0.244460:f32, 0.369546:f32, 0.244460:f32, 0.070766:f32 ];
+
+    for x, y, ksize, stencil, out, arr, is_row in iteration(out, arr, ksize, stencil) {
+        out.data(y*out.width + x) = apply_stencil(x, y, arr, ksize, stencil, is_row);
+    }
+
+    release_cpu(arr.data);
+    release_cpu(out.data);
+
+    0
+}

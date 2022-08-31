@@ -1,0 +1,36 @@
+fn @iteration(body: fn(i32, i32, i32, [f32 * 5], Img, Img, bool) -> ()) = @|out: Img, arr: Img, ksize: i32, stencil: [f32 * 5]| -> () {
+    let device  = acc_dev();
+    let size    = (arr.width * arr.height) as i64 * sizeof[f32]();
+    let arr_gpu = Img { data = alloc_gpu(device, size) as &mut[f32], width = arr.width, height = arr.height };
+    let out_gpu = Img { data = alloc_gpu(device, size) as &mut[f32], width = out.width, height = out.height };
+    let tmp_gpu = Img { data = alloc_gpu(device, size) as &mut[f32], width = out.width, height = out.height };
+
+    runtime_copy_to_gpu(device, arr.data, arr_gpu.data, size);
+
+    let block = (128, 1, 1);
+    let grid  = (out.width, out.height, 1);
+
+    for benchmark_gpu() {
+        for acc(device, grid, block) {
+            let x = acc_gidx();
+            let y = acc_gidy();
+            let is_row = false;
+
+            @body(x, y, ksize, stencil, tmp_gpu, arr_gpu, is_row);
+        }
+        for acc(device, grid, block) {
+            let x = acc_gidx();
+            let y = acc_gidy();
+            let is_row = true;
+
+            @body(x, y, ksize, stencil, out_gpu, tmp_gpu, is_row);
+        }
+        acc_sync(device);
+    }
+
+    runtime_copy_to_cpu(device, out_gpu.data, out.data, size);
+
+    release_gpu(device, tmp_gpu.data);
+    release_gpu(device, arr_gpu.data);
+    release_gpu(device, out_gpu.data);
+};

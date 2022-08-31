@@ -1,0 +1,39 @@
+#[import(cc = "device")] fn get_work_dim() -> u32;
+#[import(cc = "device")] fn get_global_size(u32) -> u64;
+#[import(cc = "device")] fn get_global_id(u32) -> u64;
+#[import(cc = "device")] fn get_local_size(u32) -> u64;
+#[import(cc = "device")] fn get_local_id(u32) -> u64;
+#[import(cc = "device")] fn get_num_groups(u32) -> u64;
+#[import(cc = "device")] fn get_group_id(u32) -> u64;
+#[import(cc = "device")] fn get_global_offset(u32) -> u64;
+#[import(cc = "device")] fn barrier(u32) -> ();
+
+static CLK_LOCAL_MEM_FENCE  = 1:u32;
+static CLK_GLOBAL_MEM_FENCE = 2:u32;
+
+fn @runtime_device(platform: i32, device: i32) -> i32 = platform | (device << 4);
+fn @alloc_gpu(dev: i32, size: i64) -> &[f32] = runtime_alloc(runtime_device(2, dev), size) as &[f32];
+fn @release_gpu(dev: i32, data: &[f32]) = runtime_release(runtime_device(2, dev), data as &[i8]);
+fn @runtime_copy_to_gpu(dev: i32, src: &[f32], dst: &[f32], size: i64) = runtime_copy(0, src as &[i8], 0, runtime_device(2, dev), dst as &mut[i8], 0, size);
+fn @runtime_copy_to_cpu(dev: i32, src: &[f32], dst: &[f32], size: i64) = runtime_copy(runtime_device(2, dev), src as &[i8], 0, 0, dst as &mut[i8], 0, size);
+fn @synchronize_opencl(dev: i32) = runtime_synchronize(runtime_device(2, dev));
+
+fn @acc(body: fn() -> ()) = @|dev: i32, grid: (i32, i32, i32), block: (i32, i32, i32)| opencl(dev, grid, block, body);
+fn @acc_sync(dev: i32)  = synchronize_opencl(dev);
+fn @acc_tidx() -> i32   = get_local_id(0) as i32;
+fn @acc_tidy() -> i32   = get_local_id(1) as i32;
+fn @acc_tidz() -> i32   = get_local_id(2) as i32;
+fn @acc_bidx() -> i32   = get_group_id(0) as i32;
+fn @acc_bidy() -> i32   = get_group_id(1) as i32;
+fn @acc_bidz() -> i32   = get_group_id(2) as i32;
+fn @acc_bdimx() -> i32  = get_local_size(0) as i32;
+fn @acc_bdimy() -> i32  = get_local_size(1) as i32;
+fn @acc_bdimz() -> i32  = get_local_size(2) as i32;
+fn @acc_gdimx() -> i32  = get_num_groups(0) as i32;
+fn @acc_gdimy() -> i32  = get_num_groups(1) as i32;
+fn @acc_gdimz() -> i32  = get_num_groups(2) as i32;
+fn @acc_gidx() -> i32   = get_global_id(0) as i32;
+fn @acc_gidy() -> i32   = get_global_id(1) as i32;
+fn @acc_gidz() -> i32   = get_global_id(2) as i32;
+fn @acc_barrier() -> () = barrier(CLK_LOCAL_MEM_FENCE);
+fn @acc_dev() -> i32    = 0;

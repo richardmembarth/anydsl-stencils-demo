@@ -1,0 +1,140 @@
+#[import(cc = "C", name = "anydsl_info")]           fn runtime_info() -> ();
+#[import(cc = "C", name = "anydsl_device_name")]    fn runtime_device_name(_device: i32) -> &[u8];
+#[import(cc = "C", name = "anydsl_alloc")]          fn runtime_alloc(_device: i32, _size: i64) -> &mut [i8];
+#[import(cc = "C", name = "anydsl_alloc_host")]     fn runtime_alloc_host(_device: i32, _size: i64) -> &mut [i8];
+#[import(cc = "C", name = "anydsl_alloc_unified")]  fn runtime_alloc_unified(_device: i32, _size: i64) -> &mut [i8];
+#[import(cc = "C", name = "anydsl_copy")]           fn runtime_copy(_src_device: i32, _src_ptr: &[i8], _src_offset: i64, _dst_device: i32, _dst_ptr: &mut [i8], _dst_offset: i64, _size: i64) -> ();
+#[import(cc = "C", name = "anydsl_get_device_ptr")] fn runtime_get_device_ptr(_device: i32, _ptr: &[i8]) -> &[i8];
+#[import(cc = "C", name = "anydsl_synchronize")]    fn runtime_synchronize(_device: i32) -> ();
+#[import(cc = "C", name = "anydsl_release")]        fn runtime_release(_device: i32, _ptr: &[i8]) -> ();
+#[import(cc = "C", name = "anydsl_release_host")]   fn runtime_release_host(_device: i32, _ptr: &[i8]) -> ();
+
+#[import(cc = "C", name = "anydsl_random_seed")]    fn random_seed(_: u32) -> ();
+#[import(cc = "C", name = "anydsl_random_val_f32")] fn random_val_f32() -> f32;
+#[import(cc = "C", name = "anydsl_random_val_u64")] fn random_val_u64() -> u64;
+
+#[import(cc = "C", name = "anydsl_get_micro_time")]  fn get_micro_time() -> i64;
+#[import(cc = "C", name = "anydsl_get_nano_time")]   fn get_nano_time() -> i64;
+#[import(cc = "C", name = "anydsl_get_kernel_time")] fn get_kernel_time() -> i64;
+
+#[import(cc = "C", name = "anydsl_print_i16")]    fn print_i16(_: i16) -> ();
+#[import(cc = "C", name = "anydsl_print_i32")]    fn print_i32(_: i32) -> ();
+#[import(cc = "C", name = "anydsl_print_i64")]    fn print_i64(_: i64) -> ();
+#[import(cc = "C", name = "anydsl_print_u16")]    fn print_u16(_: u16) -> ();
+#[import(cc = "C", name = "anydsl_print_u32")]    fn print_u32(_: u32) -> ();
+#[import(cc = "C", name = "anydsl_print_u64")]    fn print_u64(_: u64) -> ();
+#[import(cc = "C", name = "anydsl_print_f32")]    fn print_f32(_: f32) -> ();
+#[import(cc = "C", name = "anydsl_print_f64")]    fn print_f64(_: f64) -> ();
+#[import(cc = "C", name = "anydsl_print_char")]   fn print_char(_: u8) -> ();
+#[import(cc = "C", name = "anydsl_print_string")] fn print_string(_: &[u8]) -> ();
+#[import(cc = "C", name = "anydsl_print_flush")]  fn print_flush() -> ();
+
+fn @alloc_cpu(size: i64) -> &[f32] { runtime_alloc(0, size) as &[f32] }
+fn @release_cpu(data: &[f32]) -> () { runtime_release(0, data as &[i8]) }
+
+// range, range_step, unroll, unroll_step, etc.
+fn @unroll_step(body: fn(i32) -> ()) {
+    fn @(?beg & ?end & ?step) loop(beg: i32, end: i32, step: i32) -> () {
+        if beg < end {
+            @body(beg);
+            loop(beg + step, end, step)
+        }
+    }
+    loop
+}
+
+fn @unroll_step_rev(body: fn(i32) -> ()) {
+    fn @(?beg & ?end & ?step) loop(end: i32, beg: i32, step: i32) -> () {
+        if end > beg {
+            @body(end);
+            loop(end - step, beg, step)
+        }
+    }
+    loop
+}
+
+fn @range(body: fn(i32) -> ()) = @|lower: i32, upper: i32| unroll_step(body)($lower, $upper, 1);
+fn @range_step(body: fn(i32) -> ()) = @|lower: i32, upper: i32, step: i32| unroll_step(body)($lower, $upper, step);
+fn @range_rev(body: fn(i32) -> ()) = @|upper: i32, lower: i32| unroll_step_rev(body)(upper, lower, 1);
+
+fn @unroll(body: fn(i32) -> ()) = @|lower: i32, upper: i32| unroll_step(body)(lower, upper, 1);
+fn @unroll_rev(body: fn(i32) -> ()) = @|upper: i32, lower: i32| unroll_step_rev(body)(upper, lower, 1);
+
+
+// stencil lib helpers
+fn init_zero(arr: &mut[f32], width: i32, height: i32) -> () {
+    for i in range(0, width*height) {
+        arr(i) = 0;
+    }
+}
+fn init_rand(arr: &mut[f32], width: i32, height: i32) -> () {
+    for y in range(0, height) {
+        for x in range(0, width) {
+            arr(y*width + x) = random_val_f32() * 1024;
+        }
+    }
+}
+
+// border handling specialization
+fn @clamp_lower(idx: i32, lower: i32) -> i32 {
+    if idx < lower { lower } else { idx }
+}
+fn @clamp_upper(idx: i32, upper: i32) -> i32 {
+    if idx >= upper { upper - 1 } else { idx }
+}
+fn @clamp_none(idx: i32, _bound: i32) -> i32 {
+    idx
+}
+
+// nearest multiple of num
+fn @round_up(num: i32, multiple: i32) -> i32 { ((num + multiple - 1) / multiple) * multiple }
+
+static mut total_kernel_timing = 0:i64;
+static mut total_cpu_timing = 0:i64;
+
+fn @benchmark(get_time: fn() -> i64, num_iter: i32, body: fn() -> ()) -> i64 {
+    let times = alloc_cpu(num_iter as i64 * sizeof[i64]()) as &mut[i64];
+    for i in range(0, num_iter) {
+        let start = get_time();
+        body();
+        times(i) = get_time() - start;
+    }
+    sort(num_iter, times, |a: i64, b: i64| a > b);
+    print_string("Timing: ");
+    print_f64(times(num_iter/2) as f64 / 1000.0);
+    print_string(" | ");
+    print_f64(times(0) as f64 / 1000.0);
+    print_string(" | ");
+    print_f64(times(num_iter-1) as f64 / 1000.0);
+    print_string(" (median(");
+    print_i32(num_iter);
+    print_string(") | minimum | maximum) ms\n");
+    let median = times(num_iter/2);
+    release_cpu(times as &[f32]);
+    median
+}
+
+static iter_gpu =  7;
+static iter_cpu = 27;
+fn @benchmark_gpu(body: fn() -> ()) = @|| total_kernel_timing += benchmark(get_kernel_time, iter_gpu, body);
+fn @benchmark_cpu(body: fn() -> ()) = @|| total_cpu_timing    += benchmark(get_micro_time,  iter_cpu, body);
+
+fn @(?num) sort[T](num: i32, arr: &mut[T], cmp: fn(T, T)->bool) -> () {
+    // insertion sort
+    for i in range(1, num) {
+        let x = arr(i);
+        let mut j = i;
+        while j >  0 && cmp(arr(j-1), x) {
+            arr(j) = arr(j-1);
+            j = j - 1;
+        }
+        arr(j) = x;
+    }
+}
+
+// structs for images and accessors
+struct Img {
+    data   : &mut[f32],
+    width  : i32,
+    height : i32
+}
